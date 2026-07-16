@@ -4,5 +4,5 @@
 ## Author: Gonkast
 ## Version: 1.1.0
 ## SavedVariables: MainmenuGonkastDB
-## IconTexture: Interface\AddOns\Mainmenu - Gonkast\Assets\addon_icon
+## IconTexture: Interface\AddOns\Mainmenu-Gonkast\Assets\addon_icon
 Core.lua

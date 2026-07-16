@@ -17,7 +17,7 @@ local ADDON = ...
 
 -- Base path to the bundled art. Extensions are omitted on purpose so WoW
 -- resolves .tga automatically.
-local ASSETS = [[Interface\AddOns\Mainmenu - Gonkast\Assets\]]
+local ASSETS = [[Interface\AddOns\Mainmenu-Gonkast\Assets\]]
 
 local TEX = {
 	BG      = ASSETS .. "Background border",
