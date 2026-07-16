@@ -1,0 +1,8 @@
+## Interface: 120007
+## Title: |cffdeee53Azerite|r|cff60c43eUI|r GameMenu - |cfff06018Gonkast|r
+## Notes: Custom skin for the Game Menu (Escape menu).
+## Author: Gonkast
+## Version: 1.1.0
+## SavedVariables: MainmenuGonkastDB
+## IconTexture: Interface\AddOns\Mainmenu - Gonkast\Assets\addon_icon
+Core.lua
