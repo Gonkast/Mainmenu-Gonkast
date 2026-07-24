@@ -47,7 +47,7 @@ local CFG = {
 	-- Title text drawn on the banner (or standalone).
 	headerTextYOffset = -0,   -- vertical nudge from the banner center (usado si showHeader es true)
 	titleX            = 0,     -- ajuste horizontal si NO hay banner
-	titleY            = 10,   -- ajuste vertical si NO hay banner
+	titleY            = 13,   -- ajuste vertical si NO hay banner (subido un poco, 2026-07-23)
 
 	-- Character portrait shown inside the header orb.
 	showPortrait      = false, -- true = crea y muestra el retrato; false = lo desactiva completamente
@@ -323,6 +323,12 @@ local function BuildFrameArt()
 	bg:SetTexture(TEX.BG)
 	bg:SetPoint("TOPLEFT",     GameMenuFrame, "TOPLEFT",     -CFG.bgPadLeft,   CFG.bgPadTop)
 	bg:SetPoint("BOTTOMRIGHT", GameMenuFrame, "BOTTOMRIGHT",  CFG.bgPadRight, -CFG.bgPadBottom)
+	-- FIX (2026-07-23): tagged so HideBlizzardChrome's generic "hide every
+	-- untagged texture on the frame" sweep (below) leaves this alone. It only
+	-- worked before by luck of call order (ApplyBGAlpha always ran right
+	-- after and restored the alpha) -- tagging it removes that fragile
+	-- dependency outright.
+	bg.__gonk = true
 	GameMenuFrame.__gonkBG = bg
 
 	-- Header art (banner + title) lives on its own child frame with a high frame
@@ -352,7 +358,7 @@ local function BuildFrameArt()
 	title:SetText(titleText)
 	title:SetTextColor(unpack(CFG.textColor))
 	title:SetShadowColor(0, 0, 0, 0)
-	
+
 	-- Posicionamiento del texto según si existe el banner o no.
 	if CFG.showHeader and banner then
 		title:SetPoint("CENTER", banner, "CENTER", 0, CFG.headerTextYOffset)
@@ -379,6 +385,9 @@ local function BuildFrameArt()
 		bgMask:SetAllPoints(portraitBG)
 		bgMask:SetTexture([[Interface\Masks\CircleMaskScalable]], "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
 		portraitBG:AddMaskTexture(bgMask)
+		portraitBG.__gonk = true   -- ver nota FIX en bg mas arriba: sin esto, HideBlizzardChrome
+		                            -- lo oculta en el primer refresh y UpdatePortrait nunca le
+		                            -- restaura el alpha (solo cambia el color) -- quedaba invisible.
 		GameMenuFrame.__gonkPortraitBG = portraitBG
 
 		-- The portrait itself sits BELOW the header frame, so the orb rim frames it.
@@ -408,6 +417,7 @@ local function BuildFrameArt()
 			mask:SetAllPoints(portrait)
 			mask:SetTexture([[Interface\Masks\CircleMaskScalable]], "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
 			portrait:AddMaskTexture(mask)
+			portrait.__gonk = true   -- mismo fix que portraitBG/bg arriba
 
 			GameMenuFrame.__gonkPortrait = portrait
 			GameMenuFrame.__gonkPortraitMask = mask
