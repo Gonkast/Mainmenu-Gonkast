@@ -4,8 +4,8 @@
 
 	It hides Blizzard's default frame art and the buttons' 3-slice atlas art and
 	replaces them with the TGA assets bundled in the Assets\ folder:
-		Background border  -> frame background + border
-		Header Menu        -> banner on top (title text + player portrait drawn by us)
+		Background border  -> frame background + border (also frames the title,
+		                      no separate header banner -- see 2026-07-23 note)
 		button wood large  -> normal menu buttons
 		button red2 large  -> Log Out / Exit Game / Return to Game
 
@@ -13,15 +13,12 @@
 	taint-safe: the protected Logout / Quit buttons keep working.
 --]]
 
-local ADDON = ...
-
 -- Base path to the bundled art. Extensions are omitted on purpose so WoW
 -- resolves .tga automatically.
 local ASSETS = [[Interface\AddOns\Mainmenu-Gonkast\Assets\]]
 
 local TEX = {
 	BG      = ASSETS .. "Background border",
-	HEADER  = ASSETS .. "Header Menu",
 	WHITE   = ASSETS .. "button wood large",
 	RED     = ASSETS .. "button red2 large",
 	RED_BIG = ASSETS .. "button red2 large",
@@ -31,23 +28,43 @@ local TEX = {
 -- Tunables (tweak here if you want to re-position things)
 -- ---------------------------------------------------------------------------
 local CFG = {
-	-- How far the background/border extends past the frame edges.
+	-- Fondo oscuro full-screen DETRAS del menu (2026-07-24, pedido del
+	-- usuario). Frame propio, sin tocar nada de Blizzard/seguro -- se
+	-- muestra/oculta solo con el OnShow/OnHide de GameMenuFrame (ver
+	-- TryHook).
+	dimEnabled = true,
+	dimAlpha   = 0.40,
+	dimColor   = { 0, 0, 0 },
+
+	-- Escala del menu ENTERO (GameMenuFrame:SetScale) -- agranda/achica todo
+	-- junto (fondo, botones, texto) de una, sin tocar ninguna textura/CFG
+	-- individual. GameMenuFrame no es un frame protegido, asi que SetScale es
+	-- seguro. 1.0 = tamaño nativo de Blizzard.
+	menuScale = 0.83,
+
+	-- Background/border art (real size 944x1725). Real-aspect scaling
+	-- (2026-07-23): before, TOPLEFT/BOTTOMRIGHT padding stretched the texture
+	-- independently on both axes, distorting it. Now the WIDTH is driven by
+	-- the frame width + horizontal padding (scaled by bgScale), and the
+	-- HEIGHT is derived from the texture's real aspect ratio -- never
+	-- stretched. bgPadTop/Bottom no longer resize the art; they only nudge it
+	-- up/down once its height is already fixed by the aspect ratio.
+	bgAspect    = 1725 / 944,   -- height / width, from the real .tga size
+	bgScale     = 1.25,         -- agranda/achica el fondo entero SIN romper la proporcion
 	bgPadLeft   = 40,
 	bgPadRight  = 40,
 	bgPadTop    = 40,
 	bgPadBottom = 40,
 
-	-- Header banner. Width is a multiple of the frame width; height keeps the
-	-- asset's native aspect ratio (736 x 374).
-	showHeader       = false, -- true = muestra el banner decorativo; false = lo oculta
-	headerWidthScale = 1.0,
-	headerAspect     = 374 / 736,
-	headerYOffset    = 24,  -- how far the banner rises above the frame top
-
-	-- Title text drawn on the banner (or standalone).
-	headerTextYOffset = -0,   -- vertical nudge from the banner center (usado si showHeader es true)
-	titleX            = 0,     -- ajuste horizontal si NO hay banner
-	titleY            = 13,   -- ajuste vertical si NO hay banner (subido un poco, 2026-07-23)
+	-- Title text. No hay banner separado (2026-07-23, quitado -- el fondo ya
+	-- enmarca el titulo el solo). El calculo automatico "centrado en la placa"
+	-- (derivado de bgScale/aspect/frameHeight en runtime) se probo y fallo --
+	-- el texto desaparecia (offset gigante, terminaba fuera de rango).
+	-- Revertido a un offset FIJO simple, mismo patron que menuScale: ajustar
+	-- a ojo hasta que caiga sobre la placa.
+	titleX        = 0,     -- ajuste horizontal
+	titleY        = -1,   -- ajuste vertical (offset fijo desde el TOP del frame)
+	titleFontSize = 18,    -- tamaño del texto (antes usaba el nativo de GameFontNormalHuge, ~20-24px)
 
 	-- Character portrait shown inside the header orb.
 	showPortrait      = false, -- true = crea y muestra el retrato; false = lo desactiva completamente
@@ -55,41 +72,28 @@ local CFG = {
 	portraitZoom      = 0.9, -- (solo 3D) zoom del retrato; 0.7 lejos .. 1.2 cerca
 	portraitSize      = 47,   -- diameter (px) del modelo. Este es el tamaño del retrato
 	portraitX         = 2,    -- ajuste horizontal desde el centro del orb
-	portraitY         = -40,  -- desde el borde superior del banner, baja hacia el orb
+	portraitY         = -40,  -- desde el borde superior del frame, baja hacia el orb
 	portraitBGPadding = 20,   -- el disco de clase = portraitSize + esto. Debe cubrir las
 	                          -- esquinas del modelo (mín. ~40% de portraitSize) pero no más
 
-	-- Buttons. El tamaño VISIBLE del botón = altura base + buttonExtraHeight +
-	-- texExtraHeight. La caja física (que usa el layout) es ese tamaño visible
-	-- + buttonSpacing, así que buttonSpacing es hueco puro entre botones.
+	-- Buttons (real art size 934x177). Real-aspect scaling (2026-07-23): antes
+	-- texExtraWidth sumaba un ancho FIJO en pixeles, independiente de la
+	-- altura -- eso no respeta la proporcion real del archivo y podia
+	-- verse estirado/aplastado. Ahora la ALTURA visible sigue siendo la que
+	-- controlan buttonExtraHeight/texExtraHeight, y el ANCHO se DERIVA de esa
+	-- altura multiplicada por la proporcion real (934/177) -- nunca deformado.
+	-- buttonWidthScale es un multiplicador ENCIMA de esa proporcion real (1.0
+	-- = proporcion exacta del archivo; >1 = mas ancho que el real).
+	buttonAspect      = 934 / 177,  -- width / height, del .tga real
+	buttonWidthScale  = 1.0,
 	buttonExtraHeight = 10,   -- botones más altos
 	buttonFontDelta   = 1,    -- tamaño de fuente del texto
-	texExtraWidth     = 80,   -- cuánto más ancha se dibuja la textura vs el botón
 	texExtraHeight    = 10,    -- cuánto más alta se dibuja la textura vs el botón
 	buttonSpacing     = 1,    -- separación entre botones (no cambia su tamaño)
 
 	-- Text (buttons + title). FFE19B.
 	textColor = { 1.0, 0.882, 0.608 },
 }
-
--- ---------------------------------------------------------------------------
--- Saved settings (persisted via the SavedVariables in the .toc)
--- ---------------------------------------------------------------------------
-local DEFAULT_BG_ALPHA = 1.0
-
-local function InitDB()
-	MainmenuGonkastDB = MainmenuGonkastDB or {}
-	if type(MainmenuGonkastDB.bgAlpha) ~= "number" then
-		MainmenuGonkastDB.bgAlpha = DEFAULT_BG_ALPHA
-	end
-end
-
--- Push the saved opacity onto the background/border texture (if it exists yet).
-local function ApplyBGAlpha()
-	if GameMenuFrame and GameMenuFrame.__gonkBG and MainmenuGonkastDB then
-		GameMenuFrame.__gonkBG:SetAlpha(MainmenuGonkastDB.bgAlpha or DEFAULT_BG_ALPHA)
-	end
-end
 
 -- A parked, hidden frame. Reparenting Blizzard regions onto it stops them from
 -- ever rendering again, even if Blizzard re-shows them on a later OnShow.
@@ -244,8 +248,12 @@ local function SkinButton(button)
 	end
 
 	-- Visible size of the art. This is the size the player sees and clicks.
-	local visW = button:GetWidth() + (CFG.texExtraWidth or 0)
+	-- Height drives the sizing (as before); width is DERIVED from the real
+	-- texture proportion (934/177) instead of an independent pixel add, so
+	-- the art is never stretched/squashed off its native aspect ratio.
 	local visH = button.__gonkBaseH + (CFG.buttonExtraHeight or 0) + (CFG.texExtraHeight or 0)
+	local visW = visH * (CFG.buttonAspect or (934 / 177)) * (CFG.buttonWidthScale or 1.0)
+	local texExtraWidth = visW - button:GetWidth()   -- for the hit-rect expansion below
 
 	button.__gonkTex:SetSize(visW, visH)
 	if button.__gonkHL then
@@ -261,8 +269,8 @@ local function SkinButton(button)
 	-- Clickable area = the visible art: wider than the box (expand sideways),
 	-- and centered so the gap above/below is not clickable (shrink vertically).
 	button:SetHitRectInsets(
-		-(CFG.texExtraWidth or 0) / 2,
-		-(CFG.texExtraWidth or 0) / 2,
+		-texExtraWidth / 2,
+		-texExtraWidth / 2,
 		gap / 2,
 		gap / 2
 	)
@@ -318,53 +326,45 @@ local function BuildFrameArt()
 	end
 
 	-- Background + border (a texture on the frame sits behind the buttons,
-	-- which are child frames).
+	-- which are child frames). CENTER-anchored with an explicit size (set/kept
+	-- up to date in SkinFrame) instead of stretching independently via
+	-- TOPLEFT/BOTTOMRIGHT -- that stretch used to distort the art since the
+	-- frame's own aspect never matches the texture's real 944x1725 aspect.
+	-- Width = frame + horizontal padding (times bgScale); height = width *
+	-- bgAspect (real proportion, never stretched).
 	local bg = GameMenuFrame:CreateTexture(nil, "BACKGROUND")
 	bg:SetTexture(TEX.BG)
-	bg:SetPoint("TOPLEFT",     GameMenuFrame, "TOPLEFT",     -CFG.bgPadLeft,   CFG.bgPadTop)
-	bg:SetPoint("BOTTOMRIGHT", GameMenuFrame, "BOTTOMRIGHT",  CFG.bgPadRight, -CFG.bgPadBottom)
-	-- FIX (2026-07-23): tagged so HideBlizzardChrome's generic "hide every
-	-- untagged texture on the frame" sweep (below) leaves this alone. It only
-	-- worked before by luck of call order (ApplyBGAlpha always ran right
-	-- after and restored the alpha) -- tagging it removes that fragile
-	-- dependency outright.
+	bg:SetPoint("CENTER", GameMenuFrame, "CENTER",
+		(CFG.bgPadLeft - CFG.bgPadRight) / 2, (CFG.bgPadTop - CFG.bgPadBottom) / 2)
+	-- Tagged so HideBlizzardChrome's generic "hide every untagged texture on
+	-- the frame" sweep (below) leaves this alone.
 	bg.__gonk = true
 	GameMenuFrame.__gonkBG = bg
 
-	-- Header art (banner + title) lives on its own child frame with a high frame
-	-- level. This lets it render ABOVE the portrait -- essential for the 3D
-	-- model, which is a child frame and would otherwise cover the orb rim.
+	-- Header/title text lives on its own child frame with a high frame level.
+	-- This lets it render ABOVE the portrait -- essential for the 3D model,
+	-- which is a child frame and would otherwise cover the orb rim. (No
+	-- separate banner texture anymore, 2026-07-23 -- the background border
+	-- already frames the title, see reference screenshot.)
 	local headerFrame = CreateFrame("Frame", nil, GameMenuFrame)
 	headerFrame:SetAllPoints(GameMenuFrame)
 	headerFrame:SetFrameLevel(GameMenuFrame:GetFrameLevel() + 10)
 	GameMenuFrame.__gonkHeaderFrame = headerFrame
 
-	-- Header banner, straddling the top edge. Only created if enabled in CFG.
-	local banner
-	if CFG.showHeader then
-		banner = headerFrame:CreateTexture(nil, "OVERLAY")
-		banner:SetTexture(TEX.HEADER)
-		banner:SetPoint("BOTTOM", GameMenuFrame, "TOP", 0, -CFG.headerYOffset)
-		GameMenuFrame.__gonkHeader = banner
-	end
-
-	-- Title text.
+	-- Title text. Font FACE still comes from GameFontNormalHuge (Blizzard's
+	-- title font), but the SIZE is now CFG.titleFontSize (was stuck at
+	-- whatever GameFontNormalHuge's native size is). Position = fixed
+	-- CFG.titleX/titleY offset from the frame's TOP (tuned by eye).
 	local title = headerFrame:CreateFontString(nil, "OVERLAY")
 	title:SetFontObject("GameFontNormalHuge")
-	local tf, th = title:GetFont()
+	local tf = title:GetFont()
 	if tf then
-		title:SetFont(tf, th, "OUTLINE")
+		title:SetFont(tf, CFG.titleFontSize, "OUTLINE")
 	end
 	title:SetText(titleText)
 	title:SetTextColor(unpack(CFG.textColor))
 	title:SetShadowColor(0, 0, 0, 0)
-
-	-- Posicionamiento del texto según si existe el banner o no.
-	if CFG.showHeader and banner then
-		title:SetPoint("CENTER", banner, "CENTER", 0, CFG.headerTextYOffset)
-	else
-		title:SetPoint("TOP", GameMenuFrame, "TOP", CFG.titleX, CFG.titleY)
-	end
+	title:SetPoint("TOP", GameMenuFrame, "TOP", CFG.titleX, CFG.titleY)
 	GameMenuFrame.__gonkTitle = title
 
 	-- Solo crear los objetos del retrato si están activados en CFG.
@@ -374,12 +374,7 @@ local function BuildFrameArt()
 		local portraitBG = GameMenuFrame:CreateTexture(nil, "ARTWORK", nil, 0)
 		portraitBG:SetColorTexture(1, 1, 1, 1)
 		portraitBG:SetSize(CFG.portraitSize + CFG.portraitBGPadding, CFG.portraitSize + CFG.portraitBGPadding)
-		-- Ajuste de posición: referenciado a banner si existe, sino al GameMenuFrame
-		if banner then
-			portraitBG:SetPoint("CENTER", banner, "TOP", CFG.portraitX, CFG.portraitY)
-		else
-			portraitBG:SetPoint("CENTER", GameMenuFrame, "TOP", CFG.portraitX, CFG.portraitY)
-		end
+		portraitBG:SetPoint("CENTER", GameMenuFrame, "TOP", CFG.portraitX, CFG.portraitY)
 
 		local bgMask = GameMenuFrame:CreateMaskTexture()
 		bgMask:SetAllPoints(portraitBG)
@@ -397,21 +392,13 @@ local function BuildFrameArt()
 			local model = CreateFrame("PlayerModel", nil, GameMenuFrame)
 			model:SetFrameLevel(GameMenuFrame:GetFrameLevel() + 5)
 			model:SetSize(CFG.portraitSize, CFG.portraitSize)
-			if banner then
-				model:SetPoint("CENTER", banner, "TOP", CFG.portraitX, CFG.portraitY)
-			else
-				model:SetPoint("CENTER", GameMenuFrame, "TOP", CFG.portraitX, CFG.portraitY)
-			end
+			model:SetPoint("CENTER", GameMenuFrame, "TOP", CFG.portraitX, CFG.portraitY)
 			GameMenuFrame.__gonkPortraitModel = model
 		else
 			-- Flat 2D portrait, clipped to a circle.
 			local portrait = GameMenuFrame:CreateTexture(nil, "ARTWORK", nil, 1)
 			portrait:SetSize(CFG.portraitSize, CFG.portraitSize)
-			if banner then
-				portrait:SetPoint("CENTER", banner, "TOP", CFG.portraitX, CFG.portraitY)
-			else
-				portrait:SetPoint("CENTER", GameMenuFrame, "TOP", CFG.portraitX, CFG.portraitY)
-			end
+			portrait:SetPoint("CENTER", GameMenuFrame, "TOP", CFG.portraitX, CFG.portraitY)
 
 			local mask = GameMenuFrame:CreateMaskTexture()
 			mask:SetAllPoints(portrait)
@@ -466,14 +453,19 @@ local function SkinFrame()
 
 	BuildFrameArt()
 	HideBlizzardChrome()
-	ApplyBGAlpha()
 	UpdatePortrait()
+	GameMenuFrame:SetScale(CFG.menuScale or 1.0)
 
-	-- Size the banner relative to the (now-laid-out) frame width.
-	local banner = GameMenuFrame.__gonkHeader
-	if banner then
-		local w = (GameMenuFrame:GetWidth() or 200) * CFG.headerWidthScale
-		banner:SetSize(w, w * CFG.headerAspect)
+	-- Size the background relative to the (now-laid-out) frame width, height
+	-- derived from the texture's real aspect ratio (never stretched).
+	-- bgScale grows/shrinks the whole thing on top of that without touching
+	-- the ratio (2026-07-23, "aumentar el tamaño sin cambiar el ratio").
+	local bg = GameMenuFrame.__gonkBG
+	local bgH
+	if bg then
+		local w = ((GameMenuFrame:GetWidth() or 200) + CFG.bgPadLeft + CFG.bgPadRight) * (CFG.bgScale or 1.0)
+		bgH = w * CFG.bgAspect
+		bg:SetSize(w, bgH)
 	end
 
 	-- Skin every currently visible button.
@@ -491,47 +483,50 @@ local function SkinFrame()
 end
 
 -- ---------------------------------------------------------------------------
--- Options panel (Escape -> Options -> AddOns -> "Mainmenu - Gonkast")
+-- Full-screen dim behind the menu
 -- ---------------------------------------------------------------------------
-local optionsCategory
+-- A plain, non-secure frame covering the whole screen (UIParent), one solid
+-- color texture, sitting in a LOWER strata than GameMenuFrame so it always
+-- renders behind it. Only ever Shown/Hidden alongside the menu itself --
+-- never touches GameMenuFrame or any protected frame, so there's no taint
+-- risk under Midnight's stricter secret/secure rules (those only apply to
+-- combat-relevant unit data, not a decorative overlay like this).
+local dimFrame
+local function EnsureDimFrame()
+	if dimFrame then
+		return dimFrame
+	end
+	local f = CreateFrame("Frame", "MainmenuGonkastDim", UIParent)
+	f:SetAllPoints(UIParent)
+	-- BACKGROUND (below MED/HIGH, where GameMenuFrame normally lives) keeps
+	-- this behind the menu even if other addons also sit at MED.
+	f:SetFrameStrata("BACKGROUND")
+	f:EnableMouse(false)   -- never blocks clicks to whatever's under the menu
+	f:Hide()
 
-local function BuildOptions()
-	if optionsCategory then
+	local tex = f:CreateTexture(nil, "BACKGROUND")
+	tex:SetAllPoints()
+	tex:SetColorTexture(unpack(CFG.dimColor))
+	f.tex = tex
+
+	dimFrame = f
+	return f
+end
+
+local function ShowDim()
+	if not CFG.dimEnabled then
 		return
 	end
-	if not (Settings and Settings.RegisterVerticalLayoutCategory and Settings.RegisterAddOnSetting) then
-		return
+	local f = EnsureDimFrame()
+	f.tex:SetVertexColor(unpack(CFG.dimColor))
+	f:SetAlpha(CFG.dimAlpha or 0.2)
+	f:Show()
+end
+
+local function HideDim()
+	if dimFrame then
+		dimFrame:Hide()
 	end
-
-	local category = Settings.RegisterVerticalLayoutCategory("Mainmenu - Gonkast")
-	optionsCategory = category
-
-	local variable = "MainmenuGonkast_BGAlpha"
-	local setting = Settings.RegisterAddOnSetting(
-		category,
-		variable,
-		"bgAlpha",
-		MainmenuGonkastDB,
-		Settings.VarType.Number,
-		"Opacidad del fondo",
-		DEFAULT_BG_ALPHA
-	)
-
-	-- 0% .. 100% in 5% steps, shown as a percentage.
-	local options = Settings.CreateSliderOptions(0, 1, 0.05)
-	options:SetLabelFormatter(MinimalSliderWithSteppersMixin.Label.Right, function(value)
-		return string.format("%d%%", math.floor(value * 100 + 0.5))
-	end)
-
-	Settings.CreateSlider(category, setting, options, "Ajusta la opacidad del fondo y borde del menu.")
-
-	-- Apply changes live (harmless while the menu is hidden; kicks in on reopen).
-	Settings.SetOnValueChangedCallback(variable, function(_, _, value)
-		MainmenuGonkastDB.bgAlpha = value
-		ApplyBGAlpha()
-	end)
-
-	Settings.RegisterAddOnCategory(category)
 end
 
 -- ---------------------------------------------------------------------------
@@ -547,6 +542,8 @@ local function TryHook()
 	GameMenuFrame.__gonkHooked = true
 
 	GameMenuFrame:HookScript("OnShow", SkinFrame)
+	GameMenuFrame:HookScript("OnShow", ShowDim)
+	GameMenuFrame:HookScript("OnHide", HideDim)
 
 	-- Blizzard rebuilds the visible-button list here; re-skin afterwards.
 	if type(GameMenuFrame_UpdateVisibleButtons) == "function" then
@@ -555,6 +552,7 @@ local function TryHook()
 
 	if GameMenuFrame:IsShown() then
 		SkinFrame()
+		ShowDim()
 	end
 	return true
 end
@@ -562,27 +560,14 @@ end
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("PLAYER_LOGIN")
 loader:RegisterEvent("ADDON_LOADED")
-loader:SetScript("OnEvent", function(self, event, name)
+loader:SetScript("OnEvent", function(_, event, name)
 	if event == "ADDON_LOADED" then
-		if name == ADDON then
-			InitDB()
-		elseif name == "Blizzard_GameMenu" then
+		if name == "Blizzard_GameMenu" then
 			TryHook()
 		end
 		return
 	end
 
 	-- PLAYER_LOGIN
-	InitDB()
 	TryHook()
-	BuildOptions()
-	self:UnregisterEvent("ADDON_LOADED")
 end)
-
--- /gonkmenu opens the options panel directly.
-SLASH_MAINMENUGONKAST1 = "/gonkmenu"
-SlashCmdList["MAINMENUGONKAST"] = function()
-	if optionsCategory and Settings and Settings.OpenToCategory then
-		Settings.OpenToCategory(optionsCategory:GetID())
-	end
-end

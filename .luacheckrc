@@ -12,13 +12,9 @@ ignore = {
 }
 
 -- Globals que este addon SI escribe/muta a proposito: GameMenuFrame (le
--- colgamos campos propios __gonk* encima del frame nativo de Blizzard),
--- SavedVariables y los slash commands.
+-- colgamos campos propios __gonk* encima del frame nativo de Blizzard).
 globals = {
     "GameMenuFrame",
-    "MainmenuGonkastDB",
-    "SlashCmdList",
-    "SLASH_MAINMENUGONKAST1",
 }
 
 exclude_files = {
